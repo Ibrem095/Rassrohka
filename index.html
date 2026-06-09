@@ -1,0 +1,1710 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="РассрочкаПРО" />
+  <meta name="theme-color" content="#0f0f13" />
+  <title>РассрочкаПРО</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #0f0f13; font-family: Georgia, serif; }
+    input, button, textarea, select { font-family: Georgia, serif; }
+    @keyframes confettiFall {
+      0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+    }
+    @keyframes flashGreen {
+      0% { background: rgba(122,232,122,0); }
+      30% { background: rgba(122,232,122,0.15); }
+      100% { background: rgba(122,232,122,0); }
+    }
+    .payment-flash { animation: flashGreen 0.8s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+    const formatRub = (n) =>
+      new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 }).format(n || 0);
+
+    const PIN_KEY = "rassrochka-pin";
+
+    function PinScreen({ onUnlock, onSetPin, hasPin }) {
+      const [digits, setDigits] = useState([]);
+      const [error, setError] = useState("");
+      const [mode, setMode] = useState(hasPin ? "enter" : "set");
+      const [confirm, setConfirm] = useState(null);
+
+      const press = (d) => {
+        if (digits.length >= 4) return;
+        const next = [...digits, d];
+        setDigits(next);
+        setError("");
+        if (next.length === 4) {
+          setTimeout(() => handle(next), 150);
+        }
+      };
+
+      const handle = (next) => {
+        const code = next.join("");
+        if (mode === "enter") {
+          const saved = localStorage.getItem(PIN_KEY);
+          if (code === saved) { onUnlock(); }
+          else { setError("Неверный PIN"); setDigits([]); }
+        } else if (mode === "set") {
+          setConfirm(code);
+          setMode("confirm");
+          setDigits([]);
+        } else if (mode === "confirm") {
+          if (code === confirm) {
+            localStorage.setItem(PIN_KEY, code);
+            onSetPin(code);
+            onUnlock();
+          } else {
+            setError("PIN не совпадает, попробуй снова");
+            setMode("set");
+            setConfirm(null);
+            setDigits([]);
+          }
+        }
+      };
+
+      const del = () => setDigits(d => d.slice(0, -1));
+
+      const title = mode === "enter" ? "Введите PIN" : mode === "set" ? "Создайте PIN" : "Повторите PIN";
+
+      return (
+        <div style={{ minHeight: "100vh", background: "#0f0f13", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, serif" }}>
+          <div style={{ width: 40, height: 40, background: "linear-gradient(135deg, #c9a84c, #e8c97a)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: "bold", color: "#0f0f13", marginBottom: 24 }}>₽</div>
+          <div style={{ fontSize: 13, color: "#888", letterSpacing: 2, marginBottom: 32 }}>{title.toUpperCase()}</div>
+          <div style={{ display: "flex", gap: 16, marginBottom: 32 }}>
+            {[0,1,2,3].map(i => (
+              <div key={i} style={{ width: 16, height: 16, borderRadius: "50%", background: digits.length > i ? "#e8c97a" : "#2a2a38", border: "2px solid #2a2a38", transition: "background 0.15s" }} />
+            ))}
+          </div>
+          {error && <div style={{ color: "#e87a7a", fontSize: 12, marginBottom: 20 }}>{error}</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 72px)", gap: 14 }}>
+            {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k, i) => (
+              k === "" ? <div key={i} /> :
+              <button key={i} onClick={() => k === "⌫" ? del() : press(String(k))}
+                style={{ width: 72, height: 72, borderRadius: "50%", background: k === "⌫" ? "transparent" : "#1a1a24", border: k === "⌫" ? "none" : "1px solid #2a2a38", color: "#e8e4dc", fontSize: k === "⌫" ? 22 : 24, fontWeight: "bold", cursor: "pointer", fontFamily: "Georgia, serif" }}>
+                {k}
+              </button>
+            ))}
+          </div>
+          {mode === "enter" && (
+            <button onClick={() => { if (window.confirm("Сбросить PIN? Все данные сохранятся.")) { localStorage.removeItem(PIN_KEY); setMode("set"); setDigits([]); } }}
+              style={{ marginTop: 32, background: "transparent", border: "none", color: "#444", fontSize: 12, cursor: "pointer", fontFamily: "Georgia, serif" }}>
+              Забыл PIN
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    const today = () => new Date().toLocaleDateString("ru-RU");
+
+    function daysSince(dateStr) {
+      if (!dateStr) return 0;
+      const parts = dateStr.split(".");
+      if (parts.length !== 3) return 0;
+      const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      if (isNaN(d.getTime())) return 0;
+      return Math.floor((Date.now() - d.getTime()) / 86400000);
+    }
+
+    // Считает дни просрочки: от даты следующего платежа (если есть) или от последнего платежа
+    function overdueDays(c) {
+      if (c.nextPaymentDate) {
+        const parts = c.nextPaymentDate.split(".");
+        let d;
+        if (parts.length === 3) {
+          d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+        } else {
+          d = new Date(c.nextPaymentDate);
+        }
+        if (!isNaN(d.getTime())) {
+          const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+          return Math.max(0, days);
+        }
+      }
+      const lastDate = c.payments.length > 0 ? c.payments[c.payments.length - 1].date : c.date;
+      return Math.max(0, daysSince(lastDate));
+    }
+
+    function isOverdue(c) {
+      if (c.paid >= c.remaining) return false;
+      if (c.nextPaymentDate) {
+        const parts = c.nextPaymentDate.split(".");
+        let d;
+        if (parts.length === 3) {
+          d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+        } else {
+          d = new Date(c.nextPaymentDate);
+        }
+        return d < new Date() && !isNaN(d.getTime());
+      }
+      const lastDate = c.payments.length > 0 ? c.payments[c.payments.length - 1].date : c.date;
+      return daysSince(lastDate) > 30;
+    }
+
+    function isDueToday(c) {
+      if (c.paid >= c.remaining) return false;
+      if (!c.nextPaymentDate) return false;
+      return c.nextPaymentDate === today();
+    }
+
+    const GOLD = "#e8c97a"; const RED = "#e87a7a"; const GREEN = "#7ae87a";
+    const BLUE = "#7ab8e8"; const ORANGE = "#e8a87a";
+    const BG = "#0f0f13"; const CARD = "#1a1a24"; const BORDER = "#2a2a38";
+
+    const STATUS_CONFIG = {
+      reliable: { label: "Надёжный", color: GREEN, icon: "⭐" },
+      neutral:  { label: "Обычный",  color: "#888", icon: "👤" },
+      problem:  { label: "Проблемный", color: ORANGE, icon: "⚠️" },
+      blacklist:{ label: "Чёрный список", color: RED, icon: "🚫" },
+    };
+
+    const STORAGE_KEY = "rassrochka-data-v3";
+
+    function saveData(data) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+      catch (e) { console.warn("save failed", e); }
+    }
+    function loadData() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) { console.warn("load failed", e); }
+      return null;
+    }
+
+    function PieChart({ slices, size = 120 }) {
+      const r = size / 2;
+      let cum = -Math.PI / 2;
+      const total = slices.reduce((s, sl) => s + sl.value, 0);
+      if (!total) return null;
+      return (
+        <svg width={size} height={size}>
+          {slices.map((sl, i) => {
+            const angle = (sl.value / total) * 2 * Math.PI;
+            const x1 = r + r * Math.cos(cum), y1 = r + r * Math.sin(cum);
+            cum += angle;
+            const x2 = r + r * Math.cos(cum), y2 = r + r * Math.sin(cum);
+            return <path key={i} d={`M${r},${r} L${x1},${y1} A${r},${r} 0 ${angle > Math.PI ? 1 : 0},1 ${x2},${y2} Z`} fill={sl.color} stroke={BG} strokeWidth={2} />;
+          })}
+          <circle cx={r} cy={r} r={r * 0.45} fill={BG} />
+        </svg>
+      );
+    }
+
+    function ImagePicker({ value, onChange, label, size = 80 }) {
+      const ref = useRef();
+      const handleFile = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => onChange(ev.target.result);
+        reader.readAsDataURL(file);
+      };
+      return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <div onClick={() => ref.current.click()} style={{
+            width: size, height: size, borderRadius: 10,
+            background: value ? "transparent" : "#12121a",
+            border: `2px dashed ${BORDER}`, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden", flexShrink: 0,
+          }}>
+            {value
+              ? <img src={value} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" />
+              : <span style={{ fontSize: 24, color: "#444" }}>📷</span>}
+          </div>
+          <span style={{ fontSize: 9, color: "#555", letterSpacing: 1 }}>{label}</span>
+          <input ref={ref} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: "none" }} />
+        </div>
+      );
+    }
+
+    const inputStyle = {
+      width: "100%", padding: "12px 14px",
+      background: "#12121a", border: `1px solid ${BORDER}`,
+      borderRadius: 10, color: "#e8e4dc",
+      fontSize: 14, fontFamily: "Georgia, serif",
+      outline: "none", boxSizing: "border-box",
+    };
+
+    function QuickCalc() {
+      const [price, setPrice] = useState("");
+      const [months, setMonths] = useState("");
+      const [hasAdv, setHasAdv] = useState(false);
+      const [adv, setAdv] = useState("");
+      const [cost, setCost] = useState("");
+      const [customRate, setCustomRate] = useState("");
+      const [useCustomRate, setUseCustomRate] = useState(false);
+
+      const calc = useMemo(() => {
+        const p = parseFloat(price) || 0;
+        const m = parseInt(months) || 0;
+        const a = parseFloat(adv) || 0;
+        const c = parseFloat(cost) || 0;
+        if (!p || !m) return null;
+        const rate = useCustomRate ? (parseFloat(customRate) || 0) : m * 5 + (!hasAdv ? 5 : 0);
+        const total = p * (1 + rate / 100);
+        const remaining = hasAdv ? total - a : total;
+        const monthly = remaining / m;
+        const profit = total - p + (p - c);
+        return { rate, total, remaining, monthly, profit: c > 0 ? profit : total - p };
+      }, [price, months, hasAdv, adv, cost, customRate, useCustomRate]);
+
+      return (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 18, marginBottom: 18 }}>
+          <div style={{ fontSize: 11, color: GOLD, letterSpacing: 1, marginBottom: 14 }}>🧮 БЫСТРЫЙ КАЛЬКУЛЯТОР</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <input value={price} onChange={e => setPrice(e.target.value)} placeholder="Цена товара (₽)" type="number" style={inputStyle} />
+            <input value={months} onChange={e => setMonths(e.target.value)} placeholder="Месяцев" type="number" style={inputStyle} />
+            <input value={cost} onChange={e => setCost(e.target.value)} placeholder="Себестоимость (₽)" type="number" style={inputStyle} />
+            <input value={adv} onChange={e => setAdv(e.target.value)} placeholder="Взнос (₽)" type="number" style={{ ...inputStyle, opacity: hasAdv ? 1 : 0.4 }} disabled={!hasAdv} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <input type="checkbox" id="calcAdv" checked={hasAdv} onChange={e => setHasAdv(e.target.checked)} style={{ accentColor: GOLD, width: 16, height: 16 }} />
+            <label htmlFor="calcAdv" style={{ fontSize: 13, cursor: "pointer" }}>Есть первый взнос</label>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <input type="checkbox" id="customRateChk" checked={useCustomRate} onChange={e => setUseCustomRate(e.target.checked)} style={{ accentColor: GOLD, width: 16, height: 16 }} />
+            <label htmlFor="customRateChk" style={{ fontSize: 13, cursor: "pointer" }}>Своя ставка %</label>
+            {useCustomRate && <input value={customRate} onChange={e => setCustomRate(e.target.value)} placeholder="%" type="number" style={{ ...inputStyle, width: 80, padding: "8px 10px" }} />}
+          </div>
+          {calc && (
+            <div style={{ background: "#12121a", borderRadius: 10, padding: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {[
+                  { label: "Ставка", value: `${calc.rate}%`, color: "#aaa" },
+                  { label: "Итого с клиента", value: formatRub(calc.total), color: "#aaa" },
+                  { label: "Ежемесячно", value: formatRub(Math.round(calc.monthly)), color: GOLD },
+                  { label: "Ваша прибыль", value: formatRub(Math.round(calc.profit)), color: GREEN },
+                ].map((r, i) => (
+                  <div key={i}>
+                    <div style={{ fontSize: 9, color: "#555", marginBottom: 3 }}>{r.label}</div>
+                    <div style={{ fontSize: i === 2 || i === 3 ? 18 : 14, fontWeight: "bold", color: r.color }}>{r.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function SectionLabel({ text }) {
+      return <div style={{ fontSize: 9, color: "#444", letterSpacing: 2, marginBottom: 8, marginTop: 4 }}>{text}</div>;
+    }
+
+    function Field({ label, children }) {
+      return (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 9, color: "#555", letterSpacing: 1, marginBottom: 7 }}>{label.toUpperCase()}</div>
+          {children}
+        </div>
+      );
+    }
+
+    function ClientCard({ c, onDelete, onPayment, onPartialPayment, onOverdue, onArchive, onStatusChange, onCommentChange, done, overdue, dueToday }) {
+      const [open, setOpen] = useState(false);
+      const [partialMode, setPartialMode] = useState(false);
+      const [partialAmount, setPartialAmount] = useState("");
+      const [editComment, setEditComment] = useState(false);
+      const [commentVal, setCommentVal] = useState(c.comment || "");
+      const [showStatusMenu, setShowStatusMenu] = useState(false);
+
+      const progress = c.remaining > 0 ? Math.min((c.paid / c.remaining) * 100, 100) : 100;
+      const left = Math.max(0, c.remaining - c.paid);
+      const paymentsLeft = Math.ceil(left / c.monthly);
+      const statusCfg = STATUS_CONFIG[c.status] || STATUS_CONFIG.neutral;
+
+      const borderColor = done ? "#2a3a2a" : dueToday ? GREEN + "88" : overdue ? RED + "88" : BORDER;
+      const nameColor = done ? GREEN : overdue ? RED : dueToday ? GREEN : "#e8e4dc";
+
+      const handlePartial = (e) => {
+        e.stopPropagation();
+        const amt = parseFloat(partialAmount);
+        if (!amt || amt <= 0) return;
+        onPartialPayment(c.id, amt);
+        setPartialAmount(""); setPartialMode(false);
+      };
+
+      const saveComment = (e) => {
+        e.stopPropagation();
+        onCommentChange(c.id, commentVal);
+        setEditComment(false);
+      };
+
+      return (
+        <div style={{ background: CARD, border: `1px solid ${borderColor}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", opacity: done ? 0.8 : 1 }}>
+          <div onClick={() => setOpen(o => !o)} style={{ padding: "13px 14px", cursor: "pointer" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              {c.photoItem && (
+                <img src={c.photoItem} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} alt="" />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontWeight: "bold", fontSize: 15, color: nameColor }}>
+                    {done ? "✓ " : ""}{c.name}
+                  </span>
+                  <span style={{ fontSize: 12 }} title={statusCfg.label}>{statusCfg.icon}</span>
+                  {dueToday && !done && <span style={{ fontSize: 10, color: GREEN, background: "#1a3a1a", padding: "1px 6px", borderRadius: 8 }}>сегодня</span>}
+                </div>
+                {c.phone && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                    <a href={`tel:${c.phone}`} onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: BLUE, textDecoration: "none" }}>
+                      📞 {c.phone}
+                    </a>
+                    <a href={`https://wa.me/${c.phone.replace(/\D/g, "")}`} onClick={e => e.stopPropagation()} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#25d366", textDecoration: "none", background: "#1a2e1a", border: "1px solid #25d36644", borderRadius: 6, padding: "1px 7px" }}>
+                      WA
+                    </a>
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: "#444", marginTop: 2 }}>с {c.date} · {c.months} мес · {c.rate}%</div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: "bold", color: GOLD }}>
+                  {formatRub(Math.round(c.monthly))}<span style={{ fontSize: 9, color: "#555" }}>/мес</span>
+                </div>
+                {!done && <div style={{ fontSize: 10, color: overdue ? RED : "#555", marginTop: 2 }}>{overdue ? "просрочка!" : `ост. ${paymentsLeft} пл.`}</div>}
+                {c.nextPaymentDate && !done && <div style={{ fontSize: 9, color: "#444", marginTop: 2 }}>след. {c.nextPaymentDate}</div>}
+              </div>
+            </div>
+            <div style={{ marginTop: 10, background: "#0f0f13", borderRadius: 5, height: 5, overflow: "hidden" }}>
+              <div style={{ width: `${progress}%`, height: "100%", background: done ? `linear-gradient(90deg, #3a7a3a, ${GREEN})` : overdue ? `linear-gradient(90deg, #7a2a2a, ${RED})` : `linear-gradient(90deg, #c9a84c, ${GOLD})`, borderRadius: 5, transition: "width 0.5s" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 9, color: "#444" }}>
+              <span>Оплачено {formatRub(c.paid)}</span>
+              <span>{Math.round(progress)}%</span>
+              <span>Итого {formatRub(c.remaining)}</span>
+            </div>
+          </div>
+
+          {open && (
+            <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${BORDER}` }}>
+              {(c.photoItem || c.photoDoc) && (
+                <div style={{ display: "flex", gap: 10, paddingTop: 14, marginBottom: 12 }}>
+                  {c.photoItem && (
+                    <div style={{ textAlign: "center" }}>
+                      <img src={c.photoItem} style={{ width: 80, height: 80, borderRadius: 10, objectFit: "cover" }} alt="" />
+                      <div style={{ fontSize: 9, color: "#555", marginTop: 4 }}>ТОВАР</div>
+                    </div>
+                  )}
+                  {c.photoDoc && (
+                    <div style={{ textAlign: "center" }}>
+                      <img src={c.photoDoc} style={{ width: 80, height: 80, borderRadius: 10, objectFit: "cover" }} alt="" />
+                      <div style={{ fontSize: 9, color: "#555", marginTop: 4 }}>ДОКУМЕНТ</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ paddingTop: c.photoItem || c.photoDoc ? 0 : 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                {[
+                  { label: "Цена товара", value: formatRub(c.price) },
+                  { label: "Итоговая сумма", value: formatRub(c.total) },
+                  { label: "Первый взнос", value: c.hasAdvance ? formatRub(c.advance) : "Нет" },
+                  { label: "Остаток долга", value: formatRub(left) },
+                  ...(c.costPrice > 0 ? [{ label: "Себестоимость", value: formatRub(c.costPrice) }, { label: "Прибыль", value: formatRub(c.total - c.costPrice) }] : []),
+                ].map((item, i) => (
+                  <div key={i} style={{ background: "#12121a", borderRadius: 8, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 9, color: "#555", marginBottom: 3 }}>{item.label}</div>
+                    <div style={{ fontSize: 13, fontWeight: "bold" }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                {editComment ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <textarea value={commentVal} onChange={e => setCommentVal(e.target.value)} onClick={e => e.stopPropagation()} rows={2} style={{ ...inputStyle, flex: 1, resize: "none", fontSize: 12, padding: "8px 10px" }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <button onClick={saveComment} style={{ padding: "6px 10px", background: "#1a3a1a", color: GREEN, border: `1px solid ${GREEN}44`, borderRadius: 8, cursor: "pointer", fontSize: 13 }}>✓</button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditComment(false); }} style={{ padding: "6px 10px", background: "#2a1a1a", color: RED, border: `1px solid ${RED}44`, borderRadius: 8, cursor: "pointer", fontSize: 13 }}>✕</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div onClick={(e) => { e.stopPropagation(); setEditComment(true); }} style={{ background: "#12121a", borderRadius: 8, padding: "8px 10px", cursor: "pointer", minHeight: 34 }}>
+                    <div style={{ fontSize: 9, color: "#555", marginBottom: 4 }}>КОММЕНТАРИЙ (нажмите чтобы изменить)</div>
+                    <div style={{ fontSize: 12, color: c.comment ? "#aaa" : "#444" }}>{c.comment || "Добавить заметку..."}</div>
+                  </div>
+                )}
+              </div>
+
+              {!done && (
+                <div style={{ marginBottom: 12, position: "relative" }}>
+                  <button onClick={(e) => { e.stopPropagation(); setShowStatusMenu(s => !s); }} style={{ width: "100%", padding: "9px 12px", background: "#12121a", border: `1px solid ${statusCfg.color}44`, borderRadius: 10, color: statusCfg.color, cursor: "pointer", fontFamily: "inherit", fontSize: 12, textAlign: "left" }}>
+                    {statusCfg.icon} Статус: {statusCfg.label} ▼
+                  </button>
+                  {showStatusMenu && (
+                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#1a1a2a", border: `1px solid ${BORDER}`, borderRadius: 10, zIndex: 10, overflow: "hidden" }}>
+                      {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                        <button key={k} onClick={(e) => { e.stopPropagation(); onStatusChange(c.id, k); setShowStatusMenu(false); }} style={{ width: "100%", padding: "10px 14px", background: "transparent", border: "none", borderBottom: `1px solid ${BORDER}`, color: v.color, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textAlign: "left" }}>
+                          {v.icon} {v.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {c.payments.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 9, color: "#555", letterSpacing: 1, marginBottom: 6 }}>ИСТОРИЯ ПЛАТЕЖЕЙ</div>
+                  {c.payments.map((p, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#666", marginBottom: 3 }}>
+                      <span>#{i + 1} · {p.date}{p.type === "partial" ? " (часть)" : ""}</span>
+                      <span style={{ color: GREEN }}>+{formatRub(p.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!done && left > 0 && (
+                <div style={{ background: "#12121a", borderRadius: 10, padding: "10px 12px", marginBottom: 12, border: `1px solid ${GOLD}33` }}>
+                  <div style={{ fontSize: 9, color: GOLD, letterSpacing: 1, marginBottom: 8 }}>⚡ ДОСРОЧНОЕ ЗАКРЫТИЕ</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 9, color: "#555", marginBottom: 3 }}>БЕЗ СКИДКИ</div>
+                      <div style={{ fontSize: 15, fontWeight: "bold", color: GOLD }}>{formatRub(Math.round(left))}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: "#555", marginBottom: 3 }}>СО СКИДКОЙ 10%</div>
+                      <div style={{ fontSize: 15, fontWeight: "bold", color: GREEN }}>{formatRub(Math.round(left * 0.9))}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#444", marginTop: 8 }}>
+                    Осталось платежей: {Math.ceil(left / c.monthly)} × {formatRub(Math.round(c.monthly))}
+                  </div>
+                </div>
+              )}
+
+              {(c.guarantorName || c.guarantorPhone) && (
+                <div style={{ background: "#12121a", borderRadius: 10, padding: "10px 12px", marginBottom: 12, border: `1px solid #2a2a4a` }}>
+                  <div style={{ fontSize: 9, color: BLUE, letterSpacing: 1, marginBottom: 8 }}>🤝 ПОРУЧИТЕЛЬ</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {c.guarantorPhoto && <img src={c.guarantorPhoto} style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} alt="" />}
+                    <div style={{ flex: 1 }}>
+                      {c.guarantorName && <div style={{ fontSize: 13, fontWeight: "bold", marginBottom: 4 }}>{c.guarantorName}</div>}
+                      {c.guarantorPhone && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <a href={`tel:${c.guarantorPhone}`} onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: BLUE, textDecoration: "none" }}>📞 {c.guarantorPhone}</a>
+                          <a href={"https://wa.me/" + c.guarantorPhone.replace(/\D/g, "") + "?text=" + encodeURIComponent("Здравствуйте! Клиент " + c.name + " не вносит платёж по рассрочке. Просим вас как поручителя связаться с нами.")}
+                            target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            style={{ fontSize: 11, color: "#25d366", textDecoration: "none", background: "#1a2e1a", border: "1px solid #25d36644", borderRadius: 6, padding: "1px 7px" }}>WA</a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {partialMode && !done && (
+                <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
+                  <input type="number" value={partialAmount} onChange={e => setPartialAmount(e.target.value)} onClick={e => e.stopPropagation()} placeholder="Сумма частичного платежа" style={{ ...inputStyle, flex: 1, padding: "9px 12px", fontSize: 13 }} />
+                  <button onClick={handlePartial} style={{ padding: "9px 12px", background: "#1a3a1a", color: GREEN, border: `1px solid ${GREEN}44`, borderRadius: 10, cursor: "pointer" }}>✓</button>
+                  <button onClick={(e) => { e.stopPropagation(); setPartialMode(false); }} style={{ padding: "9px 12px", background: "#2a1a1a", color: RED, border: `1px solid ${RED}44`, borderRadius: 10, cursor: "pointer" }}>✕</button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {!done && c.phone && (
+                  <a
+                    href={"https://wa.me/" + c.phone.replace(/\D/g, "") + "?text=" + encodeURIComponent("Здравствуйте, " + c.name + "! Напоминаем об оплате рассрочки: " + formatRub(Math.round(left > c.monthly ? c.monthly : left)) + " до " + (c.nextPaymentDate || "конца месяца") + ". Спасибо!")}
+                    target="_blank" rel="noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "10px 10px", background: "#1a2e1a", color: "#25d366", border: "1px solid #25d36644", borderRadius: 10, fontSize: 12, fontWeight: "bold", textDecoration: "none", cursor: "pointer" }}
+                  >
+                    💬 WA
+                  </a>
+                )}
+                {!done && (
+                  <button onClick={(e) => { e.stopPropagation(); onPayment(c.id); }} style={{ flex: 1, minWidth: 80, padding: "10px 6px", background: "linear-gradient(135deg, #2a5a2a, #3a7a3a)", color: "#fff", border: "none", borderRadius: 10, fontSize: 12, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit" }}>
+                    ✓ Платёж
+                  </button>
+                )}
+                {!done && (
+                  <button onClick={(e) => { e.stopPropagation(); setPartialMode(m => !m); }} style={{ padding: "10px 10px", background: partialMode ? "#1a3a1a" : "#1a1a2a", color: partialMode ? GREEN : "#666", border: `1px solid ${partialMode ? GREEN + "44" : BORDER}`, borderRadius: 10, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                    ½
+                  </button>
+                )}
+                {!done && (
+                  <button onClick={(e) => { e.stopPropagation(); onOverdue(c.id); }} style={{ padding: "10px 10px", background: (c.overdueMarked || isOverdue(c)) ? "#3a1a1a" : "#1a1a2a", color: (c.overdueMarked || isOverdue(c)) ? RED : "#555", border: `1px solid ${(c.overdueMarked || isOverdue(c)) ? RED + "44" : BORDER}`, borderRadius: 10, fontSize: 12, cursor: "pointer" }}>
+                    ⚠
+                  </button>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); onArchive(c.id); }} style={{ padding: "10px 10px", background: "#1a1a2a", color: "#888", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 12, cursor: "pointer" }}>
+                  📦
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); onEdit(c); }} style={{ padding: "10px 10px", background: "#1a2a3a", color: BLUE, border: `1px solid ${BLUE}44`, borderRadius: 10, fontSize: 12, cursor: "pointer" }}>
+                  ✏️
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); onDelete(c.id); }} style={{ padding: "10px 10px", background: "#2a1a1a", color: RED, border: `1px solid #3a2a2a`, borderRadius: 10, fontSize: 12, cursor: "pointer" }}>
+                  🗑
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function EditModal({ c, onSave, onClose }) {
+      const [name, setName] = useState(c.name);
+      const [phone, setPhone] = useState(c.phone || "");
+      const [comment, setComment] = useState(c.comment || "");
+      const [status, setStatus] = useState(c.status || "neutral");
+      const [nextPaymentDate, setNextPaymentDate] = useState(() => {
+        if (!c.nextPaymentDate) return "";
+        const parts = c.nextPaymentDate.split(".");
+        if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        return c.nextPaymentDate;
+      });
+      const [guarantorName, setGuarantorName] = useState(c.guarantorName || "");
+      const [guarantorPhone, setGuarantorPhone] = useState(c.guarantorPhone || "");
+
+      const save = () => {
+        if (!name.trim()) return;
+        let npd = "";
+        if (nextPaymentDate) {
+          const parts = nextPaymentDate.split("-");
+          npd = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : nextPaymentDate;
+        }
+        onSave(c.id, { name: name.trim(), phone: phone.trim(), comment: comment.trim(), status, nextPaymentDate: npd, guarantorName: guarantorName.trim(), guarantorPhone: guarantorPhone.trim() });
+        onClose();
+      };
+
+      return (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000a", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div style={{ background: "#1a1a24", borderRadius: "20px 20px 0 0", padding: 20, width: "100%", maxWidth: 600, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <div style={{ fontSize: 16, fontWeight: "bold", color: GOLD }}>✏️ Редактировать клиента</div>
+              <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#666", fontSize: 22, cursor: "pointer" }}>✕</button>
+            </div>
+            <Field label="Имя клиента">
+              <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
+            </Field>
+            <Field label="Телефон">
+              <input value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} type="tel" />
+            </Field>
+            <Field label="Статус клиента">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                  <button key={k} onClick={() => setStatus(k)} style={{ padding: "10px 8px", borderRadius: 10, border: `1px solid ${status === k ? v.color : BORDER}`, background: status === k ? v.color + "22" : "#12121a", color: status === k ? v.color : "#666", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>
+                    {v.icon} {v.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Дата следующего платежа">
+              <input type="date" value={nextPaymentDate} onChange={e => setNextPaymentDate(e.target.value)} style={inputStyle} />
+            </Field>
+            <Field label="Комментарий">
+              <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+            </Field>
+            <Field label="Имя поручителя">
+              <input value={guarantorName} onChange={e => setGuarantorName(e.target.value)} style={inputStyle} />
+            </Field>
+            <Field label="Телефон поручителя">
+              <input value={guarantorPhone} onChange={e => setGuarantorPhone(e.target.value)} style={inputStyle} type="tel" />
+            </Field>
+            <button onClick={save} style={{ width: "100%", padding: 14, background: `linear-gradient(135deg, #c9a84c, ${GOLD})`, color: "#0f0f13", border: "none", borderRadius: 12, fontSize: 15, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit" }}>
+              СОХРАНИТЬ
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [unlocked, setUnlocked] = useState(false);
+      const [hasPin, setHasPin] = useState(!!localStorage.getItem(PIN_KEY));
+      const [darkMode, setDarkMode] = useState(true);
+      const [tab, setTab] = useState("home");
+      const [sortAlpha, setSortAlpha] = useState("alpha_asc");
+      const [tgToken, setTgToken] = useState(localStorage.getItem("tg_token") || "");
+      const [tgChatId, setTgChatId] = useState(localStorage.getItem("tg_chat_id") || "");
+      const [showSettings, setShowSettings] = useState(false);
+
+      const BG = darkMode ? "#0f0f13" : "#f4f4f8";
+      const CARD_BG = darkMode ? "#1a1a24" : "#ffffff";
+      const BORDER_C = darkMode ? "#2a2a38" : "#e0e0ea";
+      const TEXT_C = darkMode ? "#e8e4dc" : "#1a1a2a";
+      const INPUTBG = darkMode ? "#12121a" : "#f8f8fc";
+      const HEADERBG = darkMode ? "linear-gradient(135deg, #1a1a24, #0f0f13)" : "linear-gradient(135deg, #ffffff, #f0f0f8)";
+      const TABBG = darkMode ? "#12121a" : "#f0f0f5";
+
+      const saveTgSettings = () => {
+        localStorage.setItem("tg_token", tgToken);
+        localStorage.setItem("tg_chat_id", tgChatId);
+        showNotif("Настройки сохранены ✓");
+        setShowSettings(false);
+      };
+
+      const sendTelegramReport = async () => {
+        const token = localStorage.getItem("tg_token");
+        const chatId = localStorage.getItem("tg_chat_id");
+        if (!token || !chatId) {
+          showNotif("Сначала настрой Telegram в настройках ⚙️", "error");
+          setShowSettings(true);
+          return;
+        }
+
+        const sendMsg = async (text) => {
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" })
+          });
+        };
+
+        const todayStr = new Date().toLocaleDateString("ru-RU");
+        const active = clients.filter(c => c.paid < c.remaining);
+        const dueToday = active.filter(c => c.nextPaymentDate === todayStr);
+        const overdue = active.filter(c => c.overdueMarked || isOverdue(c));
+        const totalDebt = active.reduce((s, c) => s + (c.remaining - c.paid), 0);
+        const totalReceived = clients.reduce((s, c) => s + c.paid, 0);
+
+        const statusIcons = { reliable: "⭐", neutral: "👤", problem: "⚠️", blacklist: "🚫" };
+
+        try {
+          // Сообщение 1 — Общая сводка
+          let msg1 = `📊 <b>ОТЧЁТ — ${todayStr}</b>\n\n`;
+          msg1 += `👥 Активных клиентов: <b>${active.length}</b>\n`;
+          msg1 += `⚠️ Просрочников: <b>${overdue.length}</b>\n`;
+          msg1 += `💳 Платят сегодня: <b>${dueToday.length}</b>\n\n`;
+          msg1 += `💰 Общий долг: <b>${formatRub(totalDebt)}</b>\n`;
+          msg1 += `✅ Получено всего: <b>${formatRub(totalReceived)}</b>`;
+          await sendMsg(msg1);
+
+          // Сообщение 2 — Платят сегодня
+          if (dueToday.length > 0) {
+            let msg2 = `💳 <b>ПЛАТЯТ СЕГОДНЯ (${dueToday.length}):</b>\n\n`;
+            dueToday.forEach((c, i) => {
+              msg2 += `${i+1}. ${statusIcons[c.status] || "👤"} <b>${c.name}</b>\n`;
+              if (c.phone) msg2 += `   📞 ${c.phone}\n`;
+              msg2 += `   💰 ${formatRub(Math.round(c.monthly))}\n`;
+              msg2 += `   Остаток долга: ${formatRub(Math.round(c.remaining - c.paid))}\n\n`;
+            });
+            await sendMsg(msg2);
+          }
+
+          // Сообщение 3 — Просрочники (используем overdueDays для корректного подсчёта)
+          if (overdue.length > 0) {
+            let msg3 = `⚠️ <b>ПРОСРОЧНИКИ (${overdue.length}):</b>\n\n`;
+            overdue.forEach((c, i) => {
+              const days = overdueDays(c);
+              msg3 += `${i+1}. 🚨 <b>${c.name}</b>\n`;
+              if (c.phone) msg3 += `   📞 ${c.phone}\n`;
+              msg3 += `   Просрочка: ${days} дней\n`;
+              msg3 += `   Долг: ${formatRub(Math.round(c.remaining - c.paid))}\n`;
+              if (c.guarantorName) msg3 += `   🤝 Поручитель: ${c.guarantorName}`;
+              if (c.guarantorPhone) msg3 += ` (${c.guarantorPhone})`;
+              if (c.guarantorName || c.guarantorPhone) msg3 += "\n";
+              msg3 += "\n";
+            });
+            await sendMsg(msg3);
+          }
+
+          // Сообщение 4 — Все активные клиенты
+          if (active.length > 0) {
+            let msg4 = `👥 <b>ВСЕ АКТИВНЫЕ КЛИЕНТЫ (${active.length}):</b>\n\n`;
+            active.forEach((c, i) => {
+              const progress = Math.round((c.paid / c.remaining) * 100);
+              msg4 += `${i+1}. ${statusIcons[c.status] || "👤"} <b>${c.name}</b>\n`;
+              if (c.phone) msg4 += `   📞 ${c.phone}\n`;
+              msg4 += `   💰 ${formatRub(Math.round(c.monthly))}/мес\n`;
+              msg4 += `   Оплачено: ${formatRub(Math.round(c.paid))} (${progress}%)\n`;
+              msg4 += `   Осталось: ${formatRub(Math.round(c.remaining - c.paid))}\n`;
+              if (c.nextPaymentDate) msg4 += `   📅 Следующий платёж: ${c.nextPaymentDate}\n`;
+              if (c.comment) msg4 += `   📝 ${c.comment}\n`;
+              msg4 += "\n";
+            });
+            await sendMsg(msg4);
+          }
+
+          showNotif("Полный отчёт отправлен в Telegram ✓");
+        } catch (e) {
+          showNotif("Ошибка отправки", "error");
+        }
+      };
+
+      const sendOverdueAlert = async () => {
+        const token = localStorage.getItem("tg_token");
+        const chatId = localStorage.getItem("tg_chat_id");
+        if (!token || !chatId) { showNotif("Сначала настрой Telegram в настройках ⚙️", "error"); return; }
+        const sendMsg = async (text) => {
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" })
+          });
+        };
+        const active = clients.filter(c => c.paid < c.remaining);
+        const overdue = active.filter(c => c.overdueMarked || isOverdue(c));
+        if (overdue.length === 0) { showNotif("Просрочников нет ✓"); return; }
+        try {
+          let msg = `🚨 <b>ПРОСРОЧНИКИ — ${new Date().toLocaleDateString("ru-RU")}</b>\n\n`;
+          msg += `Всего просрочников: <b>${overdue.length}</b>\n`;
+          msg += `Общий долг: <b>${formatRub(overdue.reduce((s,c) => s + (c.remaining - c.paid), 0))}</b>\n\n`;
+          overdue.forEach((c, i) => {
+            const days = overdueDays(c);
+            msg += `${i+1}. 🚨 <b>${c.name}</b>\n`;
+            if (c.phone) msg += `   📞 ${c.phone}\n`;
+            msg += `   Просрочка: <b>${days} дней</b>\n`;
+            msg += `   Долг: ${formatRub(Math.round(c.remaining - c.paid))}\n`;
+            if (c.guarantorName) msg += `   🤝 ${c.guarantorName}`;
+            if (c.guarantorPhone) msg += ` (${c.guarantorPhone})`;
+            if (c.guarantorName || c.guarantorPhone) msg += "\n";
+            msg += "\n";
+          });
+          await sendMsg(msg);
+          showNotif(`Уведомление о ${overdue.length} просрочниках отправлено ✓`);
+        } catch(e) { showNotif("Ошибка отправки", "error"); }
+      };
+      const [clients, setClients] = useState([]);
+      const [archived, setArchived] = useState([]);
+      const [cassa, setCassa] = useState({ balance: 0, investments: [], withdrawals: [] });
+      const [search, setSearch] = useState("");
+      const [notification, setNotification] = useState(null);
+      const [filterStatus, setFilterStatus] = useState("all");
+      const [showArchive, setShowArchive] = useState(false);
+      const [editingClient, setEditingClient] = useState(null);
+      const [confetti, setConfetti] = useState([]);
+      const [showHistory, setShowHistory] = useState(false);
+      const importRef = useRef();
+
+      const [form, setForm] = useState({ name: "", phone: "", price: "", months: "", hasAdvance: false, advance: "", nextPaymentDate: "", costPrice: "", status: "neutral", photoItem: "", photoDoc: "", comment: "", guarantorName: "", guarantorPhone: "", guarantorPhoto: "", customRate: "", useCustomRate: false, category: "" });
+      const [formError, setFormError] = useState("");
+      const [cassaForm, setCassaForm] = useState({ type: "investment", amount: "", note: "" });
+
+      useEffect(() => {
+        const data = loadData();
+        if (data) {
+          setClients(data.clients || []);
+          setArchived(data.archived || []);
+          setCassa(data.cassa || { balance: 0, investments: [], withdrawals: [] });
+        }
+      }, []);
+
+      useEffect(() => {
+        saveData({ clients, archived, cassa });
+        sendTgBackup(clients, archived, cassa);
+      }, [clients, archived, cassa]);
+
+      const showNotif = (msg, type = "success") => {
+        setNotification({ msg, type });
+        setTimeout(() => setNotification(null), 3000);
+      };
+
+      const calcPreview = () => {
+        const price = parseFloat(form.price) || 0;
+        const months = parseInt(form.months) || 0;
+        const cost = parseFloat(form.costPrice) || 0;
+        if (!price || !months) return null;
+        const rate = form.useCustomRate ? (parseFloat(form.customRate) || 0) : months * 5 + (!form.hasAdvance ? 5 : 0);
+        const total = price * (1 + rate / 100);
+        const remaining = form.hasAdvance ? total - (parseFloat(form.advance) || 0) : total;
+        const monthly = remaining / months;
+        const profitPercent = total - price;
+        const profitTotal = cost > 0 ? (total - cost) : profitPercent;
+        return { rate, total, remaining, monthly, profitPercent, profitTotal, hasCost: cost > 0 };
+      };
+      const preview = calcPreview();
+
+      const addClient = () => {
+        if (!form.name.trim()) { setFormError("Введите имя клиента"); return; }
+        if (!form.price || parseFloat(form.price) <= 0) { setFormError("Введите цену товара"); return; }
+        if (!form.months || parseInt(form.months) <= 0) { setFormError("Введите срок в месяцах"); return; }
+        if (form.hasAdvance && (!form.advance || parseFloat(form.advance) <= 0)) { setFormError("Введите сумму взноса"); return; }
+        setFormError("");
+        const p = preview;
+
+        // Конвертируем дату из формата YYYY-MM-DD в ДД.ММ.ГГГГ
+        let nextPaymentDate = "";
+        if (form.nextPaymentDate) {
+          const parts = form.nextPaymentDate.split("-");
+          if (parts.length === 3) {
+            nextPaymentDate = `${parts[2]}.${parts[1]}.${parts[0]}`;
+          } else {
+            nextPaymentDate = form.nextPaymentDate;
+          }
+        }
+
+        const client = {
+          id: Date.now(),
+          name: form.name.trim(), phone: form.phone.trim(),
+          price: parseFloat(form.price), months: parseInt(form.months),
+          hasAdvance: form.hasAdvance, advance: parseFloat(form.advance) || 0,
+          costPrice: parseFloat(form.costPrice) || 0,
+          category: form.category || "",
+          rate: p.rate, total: p.total, remaining: p.remaining, monthly: p.monthly,
+          paid: 0, payments: [],
+          date: today(), nextPaymentDate,
+          overdueMarked: false, status: form.status,
+          photoItem: form.photoItem, photoDoc: form.photoDoc,
+          comment: form.comment.trim(),
+          guarantorName: form.guarantorName.trim(),
+          guarantorPhone: form.guarantorPhone.trim(),
+          guarantorPhoto: form.guarantorPhoto,
+        };
+        setClients(prev => [client, ...prev]);
+        setForm({ name: "", phone: "", price: "", months: "", hasAdvance: false, advance: "", nextPaymentDate: "", costPrice: "", status: "neutral", photoItem: "", photoDoc: "", comment: "", guarantorName: "", guarantorPhone: "", guarantorPhoto: "", customRate: "", useCustomRate: false, category: "" });
+        setTab("home");
+        showNotif(`Клиент ${client.name} добавлен`);
+      };
+
+      const playPaymentSound = () => {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const o = ctx.createOscillator(); const g = ctx.createGain();
+          o.connect(g); g.connect(ctx.destination);
+          o.frequency.setValueAtTime(523, ctx.currentTime);
+          o.frequency.setValueAtTime(659, ctx.currentTime + 0.1);
+          o.frequency.setValueAtTime(784, ctx.currentTime + 0.2);
+          g.gain.setValueAtTime(0.3, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+          o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.5);
+        } catch(e) {}
+      };
+
+      const triggerConfetti = () => {
+        const pieces = Array.from({length: 18}, (_, i) => ({
+          id: Date.now() + i, x: Math.random() * 100,
+          color: [GOLD, GREEN, BLUE, RED, ORANGE][Math.floor(Math.random()*5)],
+          delay: Math.random() * 0.4, size: 6 + Math.random() * 6,
+        }));
+        setConfetti(pieces);
+        setTimeout(() => setConfetti([]), 2000);
+      };
+
+      const exportBackup = () => {
+        const data = { clients, archived, cassa, exportDate: new Date().toISOString(), version: "v3" };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url;
+        a.download = `rassrochka-backup-${new Date().toLocaleDateString("ru-RU").replace(/\./g,"-")}.json`;
+        a.click(); showNotif("Резервная копия скачана ✓");
+      };
+
+      const importBackup = (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            if (data.clients) setClients(data.clients);
+            if (data.archived) setArchived(data.archived);
+            if (data.cassa) setCassa(data.cassa);
+            showNotif(`Импортировано: ${(data.clients||[]).length} клиентов ✓`);
+          } catch(err) { showNotif("Ошибка импорта файла", "error"); }
+        };
+        reader.readAsText(file);
+        e.target.value = "";
+      };
+
+      const tgBackupRef = useRef(null);
+
+      const sendTgBackup = useCallback(async (newClients, newArchived, newCassa) => {
+        const token = localStorage.getItem("tg_token");
+        const chatId = localStorage.getItem("tg_chat_id");
+        if (!token || !chatId) return;
+        // Debounce: не чаще раза в 10 секунд
+        if (tgBackupRef.current) clearTimeout(tgBackupRef.current);
+        tgBackupRef.current = setTimeout(async () => {
+          try {
+            const backup = { clients: newClients, archived: newArchived, cassa: newCassa, savedAt: new Date().toISOString(), version: "v3" };
+            const text = `💾 АВТОБЭКАП — ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}\n\nКлиентов: ${newClients.length} | Архив: ${newArchived.length}\nДанные сохранены автоматически.\n\n<code>${JSON.stringify(backup)}</code>`;
+            // Отправляем как документ чтобы не засорять чат
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+            const formData = new FormData();
+            formData.append("chat_id", chatId);
+            formData.append("document", blob, `backup-${Date.now()}.json`);
+            formData.append("caption", `💾 Автобэкап ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")} | Клиентов: ${newClients.length}`);
+            await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: formData });
+          } catch(e) { /* тихая ошибка */ }
+        }, 10000); // ждём 10 сек после последнего изменения
+      }, []);
+
+      const deleteClient = (id) => { setClients(prev => prev.filter(c => c.id !== id)); showNotif("Клиент удалён", "error"); };
+      const archiveClient = (id) => {
+        const c = clients.find(c => c.id === id); if (!c) return;
+        setClients(prev => prev.filter(x => x.id !== id));
+        setArchived(prev => [{ ...c, archivedDate: today() }, ...prev]);
+        showNotif("Клиент перемещён в архив");
+      };
+      const unarchiveClient = (id) => {
+        const c = archived.find(c => c.id === id); if (!c) return;
+        setArchived(prev => prev.filter(x => x.id !== id));
+        setClients(prev => [c, ...prev]);
+        showNotif("Клиент восстановлен");
+      };
+      const updateStatus = (id, status) => setClients(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+      const updateComment = (id, comment) => setClients(prev => prev.map(c => c.id === id ? { ...c, comment } : c));
+      const updateClient = (id, fields) => setClients(prev => prev.map(c => c.id === id ? { ...c, ...fields } : c));
+
+      const markPayment = (id) => {
+        setClients(prev => prev.map(c => {
+          if (c.id !== id) return c;
+          const amount = Math.min(c.monthly, c.remaining - c.paid);
+          const newPaid = c.paid + amount;
+          const nd = new Date(); nd.setDate(nd.getDate() + 30);
+          return { ...c, paid: newPaid, overdueMarked: false, nextPaymentDate: newPaid >= c.remaining ? "" : nd.toLocaleDateString("ru-RU"), payments: [...c.payments, { date: today(), amount, type: "full" }] };
+        }));
+        triggerConfetti();
+        playPaymentSound();
+        showNotif("Платёж записан ✓");
+      };
+
+      const markPartialPayment = (id, amount) => {
+        setClients(prev => prev.map(c => {
+          if (c.id !== id) return c;
+          const safe = Math.min(amount, c.remaining - c.paid);
+          if (safe <= 0) return c;
+          const newPaid = c.paid + safe;
+          const nd = new Date(); nd.setDate(nd.getDate() + 30);
+          return { ...c, paid: newPaid, overdueMarked: false, nextPaymentDate: newPaid >= c.remaining ? "" : nd.toLocaleDateString("ru-RU"), payments: [...c.payments, { date: today(), amount: safe, type: "partial" }] };
+        }));
+        showNotif("Частичный платёж записан ✓");
+      };
+
+      const toggleOverdue = (id) => setClients(prev => prev.map(c => c.id === id ? { ...c, overdueMarked: !c.overdueMarked } : c));
+
+      const addCassaOp = () => {
+        const amount = parseFloat(cassaForm.amount);
+        if (!amount || amount <= 0) return;
+        const op = { id: Date.now(), type: cassaForm.type, amount, note: cassaForm.note.trim(), date: today() };
+        setCassa(prev => ({
+          balance: prev.balance + (op.type === "withdrawal" ? -amount : amount),
+          investments: op.type === "investment" ? [...prev.investments, op] : prev.investments,
+          withdrawals: op.type === "withdrawal" ? [...prev.withdrawals, op] : prev.withdrawals,
+        }));
+        setCassaForm({ type: "investment", amount: "", note: "" });
+        showNotif(op.type === "investment" ? "Инвестиция добавлена" : "Снятие записано");
+      };
+
+      const stats = useMemo(() => {
+        const active = clients.filter(c => c.paid < c.remaining);
+        const done = clients.filter(c => c.paid >= c.remaining && c.remaining > 0);
+        const overdue = clients.filter(c => c.overdueMarked || isOverdue(c));
+        const dueToday = clients.filter(c => isDueToday(c));
+        const totalDebt = active.reduce((s, c) => s + (c.remaining - c.paid), 0);
+        const totalReceived = clients.reduce((s, c) => s + c.paid, 0);
+        const totalProfit = clients.reduce((s, c) => s + (c.costPrice > 0 ? c.total - c.costPrice : c.total - c.price), 0);
+        const nextMonth = active.reduce((s, c) => s + c.monthly, 0);
+        // Прогноз на 3 месяца
+        const now = new Date();
+        const forecast = [0, 1, 2].map(mOffset => {
+          const target = new Date(now.getFullYear(), now.getMonth() + mOffset, 1);
+          const label = target.toLocaleDateString("ru-RU", { month: "long" });
+          const amount = active.reduce((s, c) => {
+            if (!c.nextPaymentDate) return s;
+            const parts = c.nextPaymentDate.split(".");
+            if (parts.length !== 3) return s;
+            const nd = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+            const monthsFromNow = (target.getFullYear() - nd.getFullYear()) * 12 + (target.getMonth() - nd.getMonth());
+            const paymentsLeft = Math.ceil((c.remaining - c.paid) / c.monthly);
+            if (monthsFromNow >= 0 && monthsFromNow < paymentsLeft) return s + c.monthly;
+            return s;
+          }, 0);
+          return { label, amount };
+        });
+        const monthly = {};
+        clients.forEach(c => c.payments.forEach(p => {
+          const key = p.date.slice(3);
+          monthly[key] = (monthly[key] || 0) + p.amount;
+        }));
+        return { active, done, overdue, dueToday, totalDebt, totalReceived, totalProfit, nextMonth, monthly, forecast };
+      }, [clients]);
+
+      const exportCSV = () => {
+        const rows = [["Имя", "Телефон", "Товар (₽)", "Себест. (₽)", "Итого (₽)", "Ежемес. (₽)", "Оплачено (₽)", "Остаток (₽)", "Статус", "Дата"]];
+        clients.forEach(c => {
+          const status = c.paid >= c.remaining ? "Завершён" : (c.overdueMarked || isOverdue(c)) ? "Просрочка" : "Активен";
+          rows.push([c.name, c.phone, c.price, c.costPrice || "", Math.round(c.total), Math.round(c.monthly), Math.round(c.paid), Math.round(c.remaining - c.paid), status, c.date]);
+        });
+        const csv = rows.map(r => r.join(";")).join("\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = "рассрочка.csv"; a.click();
+        showNotif("Файл скачан ✓");
+      };
+
+      const sortFn = (a, b) => {
+        if (sortAlpha === "alpha_asc") return a.name.localeCompare(b.name, "ru");
+        if (sortAlpha === "alpha_desc") return b.name.localeCompare(a.name, "ru");
+        if (sortAlpha === "date_asc") return a.id - b.id;
+        if (sortAlpha === "date_desc") return b.id - a.id;
+        if (sortAlpha === "sum_asc") return a.remaining - b.remaining;
+        if (sortAlpha === "sum_desc") return b.remaining - a.remaining;
+        return 0;
+      };
+
+      const filtered = stats.active.filter(c => {
+        const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search);
+        const matchStatus = filterStatus === "all" || c.status === filterStatus;
+        return matchSearch && matchStatus;
+      }).sort(sortFn);
+      const filteredDone = stats.done.filter(c =>
+        c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search)
+      ).sort(sortFn);
+
+      if (!unlocked) return <PinScreen hasPin={hasPin} onUnlock={() => setUnlocked(true)} onSetPin={() => setHasPin(true)} />;
+
+      const tabs = [
+        { key: "home", label: "🏠", title: "Главная" },
+        { key: "clients", label: "👤", title: "Клиенты" },
+        { key: "overdue", label: "⚠️", title: "Просрочка" },
+        { key: "add", label: "➕", title: "Добавить" },
+        { key: "cassa", label: "💰", title: "Касса" },
+        { key: "report", label: "📊", title: "Отчёт" },
+        { key: "history", label: "🕐", title: "История" },
+      ];
+
+      return (
+        <div style={{ minHeight: "100vh", background: BG, color: TEXT_C, fontFamily: "Georgia, serif", paddingBottom: 20 }}>
+          {editingClient && <EditModal c={editingClient} onSave={updateClient} onClose={() => setEditingClient(null)} />}
+          <input ref={importRef} type="file" accept=".json" onChange={importBackup} style={{ display: "none" }} />
+          {confetti.map(p => (
+            <div key={p.id} style={{ position: "fixed", left: `${p.x}%`, top: -20, width: p.size, height: p.size, background: p.color, borderRadius: 2, zIndex: 999, pointerEvents: "none", animation: `confettiFall 1.8s ${p.delay}s ease-in forwards` }} />
+          ))}
+          {notification && (
+            <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", background: notification.type === "error" ? "#3a1a1a" : "#1a3a1a", border: `1px solid ${notification.type === "error" ? RED : GREEN}`, color: notification.type === "error" ? RED : GREEN, padding: "10px 22px", borderRadius: 12, zIndex: 1000, fontSize: 13, fontWeight: "bold", boxShadow: "0 8px 32px #0009" }}>
+              {notification.msg}
+            </div>
+          )}
+
+          <div style={{ background: HEADERBG, borderBottom: `1px solid ${BORDER_C}`, padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 40, height: 40, background: `linear-gradient(135deg, #c9a84c, ${GOLD})`, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: "bold", color: "#0f0f13" }}>₽</div>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: "bold", color: GOLD }}>Ибрагим База Данных</div>
+              <div style={{ fontSize: 9, color: "#888", letterSpacing: 2 }}>ДАННЫЕ СОХРАНЯЮТСЯ НА УСТРОЙСТВЕ</div>
+            </div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+              {stats.dueToday.length > 0 && <div style={{ background: "#1a3a1a", border: `1px solid ${GREEN}`, color: GREEN, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: "bold" }}>💳 {stats.dueToday.length}</div>}
+              {stats.overdue.length > 0 && <div style={{ background: "#3a1a1a", border: `1px solid ${RED}`, color: RED, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: "bold" }}>⚠ {stats.overdue.length}</div>}
+              {localStorage.getItem("tg_token") && <div title="Автобэкап в Telegram активен" style={{ fontSize: 14 }}>💾</div>}
+              <button onClick={() => setDarkMode(d => !d)} style={{ background: "transparent", border: "none", fontSize: 18, cursor: "pointer", padding: "0 2px" }}>{darkMode ? "☀️" : "🌙"}</button>
+              {hasPin && <button onClick={() => setUnlocked(false)} style={{ background: "transparent", border: "none", color: "#555", fontSize: 18, cursor: "pointer", padding: "0 4px" }}>🔒</button>}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", borderBottom: `1px solid ${BORDER_C}`, background: TABBG }}>
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, padding: "11px 2px", background: tab === t.key ? CARD_BG : "transparent", color: tab === t.key ? GOLD : "#888", border: "none", borderBottom: tab === t.key ? `2px solid ${GOLD}` : "2px solid transparent", cursor: "pointer", fontSize: 12, fontFamily: "inherit", transition: "all 0.2s" }}>
+                <div style={{ fontSize: 16 }}>{t.label}</div>
+                <div style={{ fontSize: 8, letterSpacing: 1, marginTop: 2 }}>{t.title.toUpperCase()}</div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ padding: "16px 14px", maxWidth: 600, margin: "0 auto" }}>
+
+            {tab === "home" && (
+              <div>
+                {stats.dueToday.length > 0 && (
+                  <div style={{ background: "#1a2a1a", border: `1px solid ${GREEN}44`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: GREEN, letterSpacing: 1, marginBottom: 12 }}>💳 ПЛАТЯТ СЕГОДНЯ</div>
+                    {stats.dueToday.map(c => (
+                      <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #2a3a2a" }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: "bold" }}>{c.name}</div>
+                          {c.phone && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <a href={`tel:${c.phone}`} style={{ fontSize: 11, color: BLUE, textDecoration: "none" }}>📞 {c.phone}</a>
+                              <a href={`https://wa.me/${c.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#25d366", textDecoration: "none", background: "#1a2e1a", border: "1px solid #25d36644", borderRadius: 6, padding: "1px 7px" }}>WA</a>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ fontWeight: "bold", color: GREEN }}>{formatRub(Math.round(c.monthly))}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {stats.overdue.length > 0 && (
+                  <div style={{ background: "#2a1a1a", border: `1px solid ${RED}44`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: RED, letterSpacing: 1, marginBottom: 12 }}>⚠ ПРОСРОЧНИКИ</div>
+                    {stats.overdue.map(c => (
+                      <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #3a2a2a" }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: "bold", color: RED }}>{c.name}</div>
+                          {c.phone && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <a href={`tel:${c.phone}`} style={{ fontSize: 11, color: BLUE, textDecoration: "none" }}>📞 {c.phone}</a>
+                              <a href={`https://wa.me/${c.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#25d366", textDecoration: "none", background: "#1a2e1a", border: "1px solid #25d36644", borderRadius: 6, padding: "1px 7px" }}>WA</a>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ color: RED, fontWeight: "bold" }}>{formatRub(c.remaining - c.paid)}</div>
+                          <div style={{ fontSize: 10, color: "#555" }}>долг</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ marginBottom: 16 }}>
+                  {/* Главная строка — деньги одним взглядом */}
+                  <div style={{ background: "linear-gradient(135deg, #1a1a28, #1e1e2e)", border: `1px solid ${GOLD}33`, borderRadius: 14, padding: 16, marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, color: "#555", letterSpacing: 2, marginBottom: 10 }}>ОБЗОР ПОРТФЕЛЯ</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 9, color: "#555", marginBottom: 4 }}>В ОБОРОТЕ</div>
+                        <div style={{ fontSize: 18, fontWeight: "bold", color: GOLD }}>{formatRub(stats.totalDebt)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: "#555", marginBottom: 4 }}>ПОЛУЧЕНО</div>
+                        <div style={{ fontSize: 18, fontWeight: "bold", color: GREEN }}>{formatRub(stats.totalReceived)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: "#555", marginBottom: 4 }}>ПРИБЫЛЬ</div>
+                        <div style={{ fontSize: 18, fontWeight: "bold", color: GOLD }}>{formatRub(stats.totalProfit)}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                      <div style={{ background: "#12121a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 20, fontWeight: "bold", color: GOLD }}>{stats.active.length}</div>
+                        <div style={{ fontSize: 9, color: "#555" }}>активных</div>
+                      </div>
+                      <div style={{ background: "#12121a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 20, fontWeight: "bold", color: stats.overdue.length > 0 ? RED : "#444" }}>{stats.overdue.length}</div>
+                        <div style={{ fontSize: 9, color: "#555" }}>просрочек</div>
+                      </div>
+                      <div style={{ background: "#12121a", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 20, fontWeight: "bold", color: GREEN }}>{stats.dueToday.length}</div>
+                        <div style={{ fontSize: 9, color: "#555" }}>сегодня</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Прогноз на 3 месяца */}
+                  {stats.active.length > 0 && (
+                    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 16, marginBottom: 10 }}>
+                      <div style={{ fontSize: 10, color: BLUE, letterSpacing: 2, marginBottom: 12 }}>📈 ПРОГНОЗ ПОСТУПЛЕНИЙ</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                        {stats.forecast.map((f, i) => (
+                          <div key={i} style={{ background: "#12121a", borderRadius: 10, padding: "10px 8px", textAlign: "center", border: i === 0 ? `1px solid ${GOLD}44` : `1px solid ${BORDER}` }}>
+                            <div style={{ fontSize: 9, color: i === 0 ? GOLD : "#555", marginBottom: 6, textTransform: "capitalize" }}>{i === 0 ? "ЭТОТ МЕС." : f.label.toUpperCase()}</div>
+                            <div style={{ fontSize: 14, fontWeight: "bold", color: i === 0 ? GOLD : BLUE }}>{formatRub(Math.round(f.amount))}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <QuickCalc />
+              </div>
+            )}
+
+            {tab === "clients" && (
+              <div>
+                <div style={{ position: "relative", marginBottom: 12 }}>
+                  <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#555" }}>🔍</span>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по имени или телефону..." style={{ ...inputStyle, paddingLeft: 36 }} />
+                </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
+                  {[{ key: "all", label: "Все" }, ...Object.entries(STATUS_CONFIG).map(([k, v]) => ({ key: k, label: v.icon + " " + v.label }))].map(f => (
+                    <button key={f.key} onClick={() => setFilterStatus(f.key)} style={{ padding: "6px 12px", borderRadius: 20, border: `1px solid ${filterStatus === f.key ? GOLD : BORDER}`, background: filterStatus === f.key ? "#2a2a1a" : "#12121a", color: filterStatus === f.key ? GOLD : "#666", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap", fontFamily: "inherit" }}>
+                      {f.label}
+                    </button>
+                  ))}
+                  <select value={sortAlpha} onChange={e => setSortAlpha(e.target.value)} style={{ padding: "6px 12px", borderRadius: 20, border: `1px solid ${BLUE}`, background: "#1a1a2a", color: BLUE, cursor: "pointer", fontSize: 11, fontFamily: "inherit", outline: "none" }}>
+                    <option value="alpha_asc">🔤 А → Я</option>
+                    <option value="alpha_desc">🔤 Я → А</option>
+                    <option value="date_asc">📅 Старые → Новые</option>
+                    <option value="date_desc">📅 Новые → Старые</option>
+                    <option value="sum_asc">💰 Сумма ↑</option>
+                    <option value="sum_desc">💰 Сумма ↓</option>
+                  </select>
+                </div>
+                {clients.length === 0 && (
+                  <div style={{ textAlign: "center", padding: "50px 20px", color: "#444" }}>
+                    <div style={{ fontSize: 44, marginBottom: 12 }}>📋</div>
+                    <div>Нажмите ➕ чтобы добавить клиента</div>
+                  </div>
+                )}
+                {filtered.length > 0 && <SectionLabel text="АКТИВНЫЕ" />}
+                {filtered.map(c => (
+                  <ClientCard key={c.id} c={c} onDelete={deleteClient} onPayment={markPayment} onPartialPayment={markPartialPayment} onOverdue={toggleOverdue} onArchive={archiveClient} onStatusChange={updateStatus} onCommentChange={updateComment} onEdit={setEditingClient} overdue={c.overdueMarked || isOverdue(c)} dueToday={isDueToday(c)} />
+                ))}
+                {filteredDone.length > 0 && <SectionLabel text="ЗАВЕРШЁННЫЕ" />}
+                {filteredDone.map(c => (
+                  <ClientCard key={c.id} c={c} onDelete={deleteClient} onPayment={markPayment} onPartialPayment={markPartialPayment} onOverdue={toggleOverdue} onArchive={archiveClient} onStatusChange={updateStatus} onCommentChange={updateComment} onEdit={setEditingClient} done />
+                ))}
+                {archived.length > 0 && (
+                  <div style={{ marginTop: 20 }}>
+                    <button onClick={() => setShowArchive(s => !s)} style={{ width: "100%", padding: "12px", background: "#12121a", border: `1px solid ${BORDER}`, borderRadius: 12, color: "#666", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
+                      📦 Архив ({archived.length} клиентов) {showArchive ? "▲" : "▼"}
+                    </button>
+                    {showArchive && (
+                      <div style={{ marginTop: 10 }}>
+                        {archived.map(c => (
+                          <div key={c.id} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", opacity: 0.7 }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: "bold" }}>{c.name}</div>
+                              <div style={{ fontSize: 11, color: "#555" }}>Архивирован {c.archivedDate}</div>
+                            </div>
+                            <button onClick={() => unarchiveClient(c.id)} style={{ padding: "8px 12px", background: "#1a2a1a", color: GREEN, border: `1px solid ${GREEN}44`, borderRadius: 8, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>
+                              Восстановить
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "overdue" && (
+              <div>
+                <div style={{ fontSize: 17, fontWeight: "bold", color: RED, marginBottom: 18 }}>⚠️ Просрочники</div>
+                {stats.overdue.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 20px", color: "#444" }}>
+                    <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
+                    <div style={{ fontSize: 16, color: GREEN, fontWeight: "bold" }}>Просрочников нет!</div>
+                    <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>Все клиенты платят вовремя</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ background: "#2a1a1a", border: `1px solid ${RED}44`, borderRadius: 12, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: RED }}>Всего просрочников</span>
+                      <span style={{ fontSize: 20, fontWeight: "bold", color: RED }}>{stats.overdue.length}</span>
+                    </div>
+                    <div style={{ background: "#2a1a1a", border: `1px solid ${RED}44`, borderRadius: 12, padding: "10px 14px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: RED }}>Общий долг</span>
+                      <span style={{ fontSize: 16, fontWeight: "bold", color: RED }}>{formatRub(stats.overdue.reduce((s, c) => s + (c.remaining - c.paid), 0))}</span>
+                    </div>
+                    {stats.overdue.map(c => {
+                      const debt = c.remaining - c.paid;
+                      const days = overdueDays(c); // ✅ исправлено
+                      return (
+                        <div key={c.id} style={{ background: "#1a0f0f", border: `1px solid ${RED}66`, borderRadius: 14, padding: 16, marginBottom: 12 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 16, fontWeight: "bold", color: RED, marginBottom: 4 }}>{c.name}</div>
+                              <div style={{ fontSize: 11, color: "#666" }}>
+                                {c.nextPaymentDate ? `Дата платежа: ${c.nextPaymentDate}` : `Последний платёж: ${c.payments.length > 0 ? c.payments[c.payments.length - 1].date : c.date}`}
+                              </div>
+                              <div style={{ fontSize: 11, color: RED, marginTop: 2 }}>Просрочка: {days} дней</div>
+                            </div>
+                            {c.photoItem && <img src={c.photoItem} style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} alt="" />}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                            <div style={{ background: "#2a1a1a", borderRadius: 8, padding: "8px 10px" }}>
+                              <div style={{ fontSize: 9, color: "#555", marginBottom: 3 }}>ДОЛГ</div>
+                              <div style={{ fontSize: 15, fontWeight: "bold", color: RED }}>{formatRub(debt)}</div>
+                            </div>
+                            <div style={{ background: "#2a1a1a", borderRadius: 8, padding: "8px 10px" }}>
+                              <div style={{ fontSize: 9, color: "#555", marginBottom: 3 }}>ЕЖЕМЕСЯЧНО</div>
+                              <div style={{ fontSize: 15, fontWeight: "bold", color: GOLD }}>{formatRub(Math.round(c.monthly))}</div>
+                            </div>
+                          </div>
+                          {(c.guarantorName || c.guarantorPhone) && (
+                            <div style={{ background: "#12121a", borderRadius: 8, padding: "8px 10px", marginBottom: 12, border: "1px solid #2a2a4a" }}>
+                              <div style={{ fontSize: 9, color: BLUE, marginBottom: 4 }}>🤝 ПОРУЧИТЕЛЬ</div>
+                              {c.guarantorName && <div style={{ fontSize: 12, fontWeight: "bold", marginBottom: 4 }}>{c.guarantorName}</div>}
+                              {c.guarantorPhone && (
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <a href={`tel:${c.guarantorPhone}`} style={{ fontSize: 11, color: BLUE, textDecoration: "none" }}>📞 {c.guarantorPhone}</a>
+                                  <a href={"https://wa.me/" + c.guarantorPhone.replace(/\D/g, "") + "?text=" + encodeURIComponent("Здравствуйте! Клиент " + c.name + " не вносит платёж " + days + " дней. Просим вас как поручителя связаться с нами.")} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#25d366", textDecoration: "none", background: "#1a2e1a", border: "1px solid #25d36644", borderRadius: 6, padding: "1px 7px" }}>WA</a>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8 }}>
+                            {c.phone && (
+                              <>
+                                <a href={`tel:${c.phone}`} style={{ flex: 1, padding: "10px 8px", background: "#1a1a2a", color: BLUE, border: `1px solid ${BLUE}44`, borderRadius: 10, fontSize: 12, fontWeight: "bold", textDecoration: "none", textAlign: "center" }}>📞 Позвонить</a>
+                                <a href={"https://wa.me/" + c.phone.replace(/\D/g, "") + "?text=" + encodeURIComponent("Здравствуйте, " + c.name + "! У вас просрочка " + days + " дней. Долг: " + formatRub(debt) + ". Просим оплатить.")} target="_blank" rel="noreferrer" style={{ flex: 1, padding: "10px 8px", background: "#1a2e1a", color: "#25d366", border: "1px solid #25d36644", borderRadius: 10, fontSize: 12, fontWeight: "bold", textDecoration: "none", textAlign: "center" }}>💬 WhatsApp</a>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "add" && (
+              <div>
+                <div style={{ fontSize: 17, fontWeight: "bold", color: GOLD, marginBottom: 18 }}>Новый клиент</div>
+                <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 18 }}>
+                  <ImagePicker value={form.photoItem} onChange={v => setForm(f => ({ ...f, photoItem: v }))} label="ФОТО ТОВАРА" size={90} />
+                  <ImagePicker value={form.photoDoc} onChange={v => setForm(f => ({ ...f, photoDoc: v }))} label="ДОКУМЕНТ/РАСПИСКА" size={90} />
+                </div>
+                <Field label="Имя клиента">
+                  <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Иван Петров" style={inputStyle} />
+                </Field>
+                <Field label="Телефон (необязательно)">
+                  <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+7 900 000 00 00" style={inputStyle} type="tel" />
+                </Field>
+                <Field label="Статус клиента">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                      <button key={k} onClick={() => setForm(f => ({ ...f, status: k }))} style={{ padding: "10px 8px", borderRadius: 10, border: `1px solid ${form.status === k ? v.color : BORDER}`, background: form.status === k ? v.color + "22" : "#12121a", color: form.status === k ? v.color : "#666", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>
+                        {v.icon} {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="Цена товара (₽)">
+                  <input type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="100 000" style={inputStyle} />
+                </Field>
+                <Field label="Себестоимость товара (₽) — необязательно">
+                  <input type="number" value={form.costPrice} onChange={e => setForm(f => ({ ...f, costPrice: e.target.value }))} placeholder="80 000" style={inputStyle} />
+                </Field>
+                <Field label="Категория товара">
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {["📱 Телефон","💻 Техника","👗 Одежда","🏠 Мебель","💍 Ювелирка","🚗 Авто","🎮 Игры","📦 Другое"].map(cat => (
+                      <button key={cat} onClick={() => setForm(f => ({ ...f, category: f.category === cat ? "" : cat }))}
+                        style={{ padding: "6px 10px", borderRadius: 20, border: `1px solid ${form.category === cat ? GOLD : BORDER}`, background: form.category === cat ? "#2a2a1a" : "#12121a", color: form.category === cat ? GOLD : "#666", cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="Срок рассрочки (месяцев)">
+                  <input type="number" value={form.months} onChange={e => setForm(f => ({ ...f, months: e.target.value }))} placeholder="6" style={inputStyle} />
+                </Field>
+                <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: form.useCustomRate ? 10 : 0 }}>
+                    <input type="checkbox" id="customRateForm" checked={form.useCustomRate} onChange={e => setForm(f => ({ ...f, useCustomRate: e.target.checked, customRate: "" }))} style={{ width: 18, height: 18, accentColor: GOLD, cursor: "pointer" }} />
+                    <label htmlFor="customRateForm" style={{ cursor: "pointer", fontSize: 14 }}>Своя процентная ставка</label>
+                  </div>
+                  {form.useCustomRate && (
+                    <input type="number" value={form.customRate} onChange={e => setForm(f => ({ ...f, customRate: e.target.value }))} placeholder="Введите % (например 15)" style={inputStyle} />
+                  )}
+                  {!form.useCustomRate && form.months && (
+                    <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>
+                      Авто-ставка: {parseInt(form.months) * 5 + (!form.hasAdvance ? 5 : 0)}% (5% × {form.months} мес{!form.hasAdvance ? " + 5% без взноса" : ""})
+                    </div>
+                  )}
+                </div>
+                <Field label="Дата первого платежа">
+                  <input type="date" value={form.nextPaymentDate} onChange={e => setForm(f => ({ ...f, nextPaymentDate: e.target.value }))} style={inputStyle} />
+                </Field>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: 14, background: CARD, borderRadius: 10, border: `1px solid ${BORDER}` }}>
+                  <input type="checkbox" id="adv" checked={form.hasAdvance} onChange={e => setForm(f => ({ ...f, hasAdvance: e.target.checked, advance: "" }))} style={{ width: 18, height: 18, accentColor: GOLD, cursor: "pointer" }} />
+                  <label htmlFor="adv" style={{ cursor: "pointer", fontSize: 14 }}>Есть первоначальный взнос</label>
+                </div>
+                {form.hasAdvance && (
+                  <Field label="Сумма взноса (₽)">
+                    <input type="number" value={form.advance} onChange={e => setForm(f => ({ ...f, advance: e.target.value }))} placeholder="20 000" style={inputStyle} />
+                  </Field>
+                )}
+                <Field label="Комментарий (необязательно)">
+                  <textarea value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Живёт на ул. Ленина, платит через жену..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+                </Field>
+
+                <div style={{ background: "#1a1a2a", border: `1px solid #3a3a5a`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: BLUE, letterSpacing: 1, marginBottom: 14 }}>🤝 ПОРУЧИТЕЛЬ (необязательно)</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                    <ImagePicker value={form.guarantorPhoto} onChange={v => setForm(f => ({ ...f, guarantorPhoto: v }))} label="ФОТО ПОРУЧИТЕЛЯ" size={80} />
+                  </div>
+                  <Field label="Имя поручителя">
+                    <input value={form.guarantorName} onChange={e => setForm(f => ({ ...f, guarantorName: e.target.value }))} placeholder="Иван Иванов" style={inputStyle} />
+                  </Field>
+                  <Field label="Телефон поручителя">
+                    <input value={form.guarantorPhone} onChange={e => setForm(f => ({ ...f, guarantorPhone: e.target.value }))} placeholder="+7 900 000 00 00" style={inputStyle} type="tel" />
+                  </Field>
+                </div>
+                {preview && (
+                  <div style={{ background: "linear-gradient(135deg, #1e1e2e, #1a1a28)", border: `1px solid ${GOLD}33`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, color: GOLD, letterSpacing: 2, marginBottom: 12 }}>ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      {[
+                        { label: "Ставка", value: `${preview.rate}%` },
+                        { label: "Итоговая сумма", value: formatRub(preview.total) },
+                        { label: "Ежемесячно", value: formatRub(Math.round(preview.monthly)) },
+                        { label: preview.hasCost ? "Полная прибыль" : "Прибыль (проценты)", value: formatRub(Math.round(preview.hasCost ? preview.profitTotal : preview.profitPercent)) },
+                      ].map((item, i) => (
+                        <div key={i}>
+                          <div style={{ fontSize: 9, color: "#666", marginBottom: 3 }}>{item.label}</div>
+                          <div style={{ fontSize: i === 2 ? 20 : 14, fontWeight: "bold", color: i === 2 ? GOLD : i === 3 ? GREEN : "#e8e4dc" }}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {formError && <div style={{ color: RED, marginBottom: 12, fontSize: 12 }}>⚠ {formError}</div>}
+                <button onClick={addClient} style={{ width: "100%", padding: 15, background: `linear-gradient(135deg, #c9a84c, ${GOLD})`, color: BG, border: "none", borderRadius: 12, fontSize: 15, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}>
+                  ДОБАВИТЬ КЛИЕНТА
+                </button>
+              </div>
+            )}
+
+            {tab === "cassa" && (
+              <div>
+                <div style={{ background: "linear-gradient(135deg, #1e1e2e, #1a1a28)", border: `1px solid ${GOLD}33`, borderRadius: 16, padding: 22, marginBottom: 16, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: "#555", letterSpacing: 2, marginBottom: 8 }}>БАЛАНС КАССЫ</div>
+                  <div style={{ fontSize: 36, fontWeight: "bold", color: cassa.balance >= 0 ? GREEN : RED }}>{formatRub(cassa.balance)}</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+                  <div style={{ background: "#1a2a1a", border: "1px solid #2a3a2a", borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontSize: 9, color: GREEN, letterSpacing: 1, marginBottom: 6 }}>ИНВЕСТИЦИИ</div>
+                    <div style={{ fontSize: 18, fontWeight: "bold", color: GREEN }}>{formatRub(cassa.investments.reduce((s, o) => s + o.amount, 0))}</div>
+                  </div>
+                  <div style={{ background: "#2a1a1a", border: "1px solid #3a2a2a", borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontSize: 9, color: RED, letterSpacing: 1, marginBottom: 6 }}>СНЯТО</div>
+                    <div style={{ fontSize: 18, fontWeight: "bold", color: RED }}>{formatRub(cassa.withdrawals.reduce((s, o) => s + o.amount, 0))}</div>
+                  </div>
+                </div>
+                <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: GOLD, marginBottom: 12 }}>НОВАЯ ОПЕРАЦИЯ</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                    {[{ key: "investment", label: "💹 Инвестиция" }, { key: "withdrawal", label: "💸 Снятие" }].map(t => (
+                      <button key={t.key} onClick={() => setCassaForm(f => ({ ...f, type: t.key }))} style={{ padding: "11px 8px", background: cassaForm.type === t.key ? (t.key === "investment" ? "#1a3a1a" : "#3a1a1a") : "#12121a", border: `1px solid ${cassaForm.type === t.key ? (t.key === "investment" ? GREEN : RED) : BORDER}`, color: cassaForm.type === t.key ? (t.key === "investment" ? GREEN : RED) : "#555", borderRadius: 10, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>{t.label}</button>
+                    ))}
+                  </div>
+                  <input type="number" value={cassaForm.amount} onChange={e => setCassaForm(f => ({ ...f, amount: e.target.value }))} placeholder="Сумма (₽)" style={{ ...inputStyle, marginBottom: 8 }} />
+                  <input value={cassaForm.note} onChange={e => setCassaForm(f => ({ ...f, note: e.target.value }))} placeholder="Примечание" style={{ ...inputStyle, marginBottom: 12 }} />
+                  <button onClick={addCassaOp} style={{ width: "100%", padding: 13, background: cassaForm.type === "investment" ? "linear-gradient(135deg, #2a5a2a, #3a7a3a)" : "linear-gradient(135deg, #5a2a2a, #7a3a3a)", color: "#fff", border: "none", borderRadius: 10, fontSize: 13, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit" }}>
+                    {cassaForm.type === "investment" ? "ДОБАВИТЬ ИНВЕСТИЦИЮ" : "ЗАПИСАТЬ СНЯТИЕ"}
+                  </button>
+                </div>
+                {[...cassa.investments, ...cassa.withdrawals].sort((a, b) => b.id - a.id).map(op => (
+                  <div key={op.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: CARD, border: `1px solid ${op.type === "investment" ? "#2a3a2a" : "#3a2a2a"}`, borderRadius: 10, marginBottom: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13 }}>{op.type === "investment" ? "💹" : "💸"} {op.note || (op.type === "investment" ? "Инвестиция" : "Снятие")}</div>
+                      <div style={{ fontSize: 10, color: "#555", marginTop: 3 }}>{op.date}</div>
+                    </div>
+                    <div style={{ fontWeight: "bold", fontSize: 15, color: op.type === "investment" ? GREEN : RED, marginRight: 10 }}>
+                      {op.type === "investment" ? "+" : "−"}{formatRub(op.amount)}
+                    </div>
+                    <button onClick={() => {
+                      setCassa(prev => ({
+                        balance: prev.balance + (op.type === "investment" ? -op.amount : op.amount),
+                        investments: prev.investments.filter(x => x.id !== op.id),
+                        withdrawals: prev.withdrawals.filter(x => x.id !== op.id),
+                      }));
+                      showNotif("Запись удалена", "error");
+                    }} style={{ padding: "6px 10px", background: "#2a1a1a", color: RED, border: `1px solid ${RED}44`, borderRadius: 8, fontSize: 13, cursor: "pointer", flexShrink: 0 }}>
+                      🗑
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tab === "report" && (
+              <div>
+                <div style={{ fontSize: 17, fontWeight: "bold", color: GOLD, marginBottom: 18 }}>📊 Аналитика</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+                  {[
+                    { label: "Общий долг", value: formatRub(stats.totalDebt), color: RED },
+                    { label: "Получено платежей", value: formatRub(stats.totalReceived), color: GREEN },
+                    { label: "Прибыль", value: formatRub(stats.totalProfit), color: GOLD },
+                    { label: "Ожид. в этом мес.", value: formatRub(stats.nextMonth), color: BLUE },
+                  ].map((s, i) => (
+                    <div key={i} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14 }}>
+                      <div style={{ fontSize: 9, color: "#555", letterSpacing: 1, marginBottom: 8 }}>{s.label.toUpperCase()}</div>
+                      <div style={{ fontSize: 15, fontWeight: "bold", color: s.color }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {clients.length > 0 && (
+                  <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 18, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: GOLD, letterSpacing: 1, marginBottom: 14 }}>КЛИЕНТЫ ПО СТАТУСАМ</div>
+                    {Object.entries(STATUS_CONFIG).map(([k, v]) => {
+                      const count = clients.filter(c => c.status === k).length;
+                      if (!count) return null;
+                      return (
+                        <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 16 }}>{v.icon}</span>
+                            <span style={{ fontSize: 13, color: v.color }}>{v.label}</span>
+                          </div>
+                          <span style={{ fontSize: 16, fontWeight: "bold", color: v.color }}>{count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {clients.length > 0 && (
+                  <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 18, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: GOLD, letterSpacing: 1, marginBottom: 14 }}>СТРУКТУРА ПОРТФЕЛЯ</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                      <PieChart slices={[
+                        { value: stats.totalDebt, color: RED },
+                        { value: stats.totalReceived, color: GREEN },
+                        { value: Math.max(0, cassa.balance), color: GOLD },
+                      ]} size={110} />
+                      <div style={{ flex: 1 }}>
+                        {[
+                          { label: "Долг клиентов", value: formatRub(stats.totalDebt), color: RED },
+                          { label: "Получено", value: formatRub(stats.totalReceived), color: GREEN },
+                          { label: "Касса", value: formatRub(cassa.balance), color: GOLD },
+                        ].map((item, i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, alignItems: "center" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.color }} />
+                              <span style={{ fontSize: 12, color: "#aaa" }}>{item.label}</span>
+                            </div>
+                            <span style={{ fontSize: 13, fontWeight: "bold", color: item.color }}>{item.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {Object.keys(stats.monthly).length > 0 && (
+                  <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 18, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: GOLD, letterSpacing: 1, marginBottom: 14 }}>📅 ПЛАТЕЖИ ПО МЕСЯЦАМ</div>
+                    {Object.entries(stats.monthly).sort().reverse().slice(0, 6).map(([month, amount]) => {
+                      const max = Math.max(...Object.values(stats.monthly));
+                      const pct = (amount / max) * 100;
+                      return (
+                        <div key={month} style={{ marginBottom: 10 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 12 }}>
+                            <span style={{ color: "#888" }}>{month}</span>
+                            <span style={{ color: GREEN, fontWeight: "bold" }}>{formatRub(amount)}</span>
+                          </div>
+                          <div style={{ background: "#0f0f13", borderRadius: 4, height: 8 }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, #2a7a2a, ${GREEN})`, borderRadius: 4, transition: "width 0.5s" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {stats.active.length > 0 && (
+                  <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 18, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: GOLD, letterSpacing: 1, marginBottom: 14 }}>🏆 ТОП ДОЛЖНИКОВ</div>
+                    {[...stats.active].sort((a, b) => (b.remaining - b.paid) - (a.remaining - a.paid)).slice(0, 5).map((c, i) => {
+                      const debt = c.remaining - c.paid;
+                      const maxDebt = Math.max(...stats.active.map(x => x.remaining - x.paid));
+                      const pct = (debt / maxDebt) * 100;
+                      const colors = [RED, ORANGE, GOLD, BLUE, "#aaa"];
+                      return (
+                        <div key={c.id} style={{ marginBottom: 12 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 14, fontWeight: "bold", color: colors[i] }}>#{i+1}</span>
+                              <span style={{ fontSize: 13 }}>{c.name}</span>
+                              {(c.overdueMarked || isOverdue(c)) && <span style={{ fontSize: 10, color: RED, background: "#2a1a1a", padding: "1px 6px", borderRadius: 6 }}>просрочка</span>}
+                            </div>
+                            <span style={{ fontSize: 13, fontWeight: "bold", color: colors[i] }}>{formatRub(debt)}</span>
+                          </div>
+                          <div style={{ background: "#0f0f13", borderRadius: 4, height: 5 }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: colors[i], borderRadius: 4, opacity: 0.7 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <button onClick={exportCSV} style={{ width: "100%", padding: 14, background: "linear-gradient(135deg, #1a2a3a, #2a3a4a)", color: BLUE, border: `1px solid #2a4a5a`, borderRadius: 12, fontSize: 13, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit", letterSpacing: 1, marginBottom: 8 }}>
+                  📥 СКАЧАТЬ EXCEL / CSV
+                </button>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <button onClick={exportBackup} style={{ padding: 13, background: "#1a2a1a", color: GREEN, border: `1px solid ${GREEN}44`, borderRadius: 12, fontSize: 12, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit" }}>
+                    💾 Резервная копия
+                  </button>
+                  <button onClick={() => importRef.current.click()} style={{ padding: 13, background: "#1a1a2a", color: BLUE, border: `1px solid ${BLUE}44`, borderRadius: 12, fontSize: 12, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit" }}>
+                    📂 Импорт данных
+                  </button>
+                </div>
+
+                <div style={{ marginTop: 12, background: "#1a1a2a", border: "1px solid #3a3a5a", borderRadius: 12, padding: 14 }}>
+                  <div style={{ fontSize: 11, color: BLUE, letterSpacing: 1, marginBottom: 10 }}>🤖 TELEGRAM БОТ</div>
+                  <button onClick={sendTelegramReport} style={{ width: "100%", padding: 13, background: "linear-gradient(135deg, #1a2e1a, #2a4a2a)", color: "#25d366", border: "1px solid #25d36644", borderRadius: 10, fontSize: 13, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit", marginBottom: 8 }}>
+                    📲 Отправить отчёт в Telegram
+                  </button>
+                  <button onClick={sendOverdueAlert} style={{ width: "100%", padding: 13, background: "linear-gradient(135deg, #3a1a1a, #5a2a2a)", color: RED, border: `1px solid ${RED}44`, borderRadius: 10, fontSize: 13, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit", marginBottom: 8 }}>
+                    🚨 Уведомить о просрочниках
+                  </button>
+                  <button onClick={() => setShowSettings(true)} style={{ width: "100%", padding: 10, background: "transparent", color: "#555", border: `1px solid ${BORDER_C}`, borderRadius: 10, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                    ⚙️ Настройки Telegram
+                  </button>
+                </div>
+
+                {showSettings && (
+                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#0008", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+                    <div style={{ background: CARD_BG, borderRadius: 16, padding: 20, width: "100%" }}>
+                      <div style={{ fontSize: 16, fontWeight: "bold", color: GOLD, marginBottom: 16 }}>⚙️ Настройки Telegram</div>
+                      <div style={{ background: "#1a2a1a", border: `1px solid ${GREEN}44`, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+                        <div style={{ fontSize: 11, color: GREEN, marginBottom: 4 }}>💾 АВТОБЭКАП ВКЛЮЧЁН</div>
+                        <div style={{ fontSize: 11, color: "#666" }}>После каждого изменения данные автоматически сохраняются в Telegram через 10 сек. Файл JSON придёт в ваш чат с ботом.</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>ТОКЕН БОТА</div>
+                      <input value={tgToken} onChange={e => setTgToken(e.target.value)} placeholder="Токен от @BotFather" style={{ ...inputStyle, marginBottom: 12 }} />
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>ВАШ TELEGRAM ID</div>
+                      <input value={tgChatId} onChange={e => setTgChatId(e.target.value)} placeholder="ID от @userinfobot" style={{ ...inputStyle, marginBottom: 16 }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={saveTgSettings} style={{ flex: 1, padding: 12, background: `linear-gradient(135deg, #c9a84c, ${GOLD})`, color: BG, border: "none", borderRadius: 10, fontSize: 14, fontWeight: "bold", cursor: "pointer", fontFamily: "inherit" }}>Сохранить</button>
+                        <button onClick={() => setShowSettings(false)} style={{ padding: 12, background: "#2a1a1a", color: RED, border: `1px solid ${RED}44`, borderRadius: 10, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {tab === "history" && (
+              <div>
+                <div style={{ fontSize: 17, fontWeight: "bold", color: GOLD, marginBottom: 18 }}>🕐 История платежей</div>
+                {(() => {
+                  const allPayments = [];
+                  clients.forEach(c => {
+                    c.payments.forEach(p => {
+                      allPayments.push({ ...p, clientName: c.name, clientId: c.id, category: c.category || "" });
+                    });
+                  });
+                  allPayments.sort((a, b) => {
+                    const da = a.date.split(".").reverse().join("-");
+                    const db = b.date.split(".").reverse().join("-");
+                    return db.localeCompare(da);
+                  });
+                  if (allPayments.length === 0) return (
+                    <div style={{ textAlign: "center", padding: "60px 20px", color: "#444" }}>
+                      <div style={{ fontSize: 44, marginBottom: 12 }}>💳</div>
+                      <div>Платежей пока нет</div>
+                    </div>
+                  );
+                  const totalAll = allPayments.reduce((s, p) => s + p.amount, 0);
+                  return (
+                    <div>
+                      <div style={{ background: "#1a2a1a", border: `1px solid ${GREEN}44`, borderRadius: 12, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 12, color: GREEN }}>Всего получено</span>
+                        <span style={{ fontSize: 18, fontWeight: "bold", color: GREEN }}>{formatRub(totalAll)}</span>
+                      </div>
+                      {allPayments.map((p, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, marginBottom: 6 }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: "bold" }}>{p.clientName}</div>
+                            <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
+                              {p.date} · {p.type === "partial" ? "частичный" : "полный"}{p.category ? ` · ${p.category}` : ""}
+                            </div>
+                          </div>
+                          <div style={{ fontWeight: "bold", color: GREEN, fontSize: 14 }}>+{formatRub(p.amount)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
